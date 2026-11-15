@@ -83,7 +83,8 @@ If Battle.net ever looks frozen, `bnet-sleepguard thaw` unsticks it. The agent a
 
 ## Caveats
 
-- After opening the lid Battle.net shows "offline" for ~3–5 seconds while it reconnects.
+- After opening the lid Battle.net shows "offline" for ~3–5 seconds while it reconnects. After a long sleep (hours), its old connection is silently dead and it can take a minute or so to notice. During that time a game launch may stall or skip the SSO token, and then it reconnects and signs in normally.
+- Battle.net registers for macOS sleep notifications itself and can't acknowledge them while paused, so each maintenance wake takes ~30 s longer to go back to sleep (`Battle.net timed out(30000 ms)` in `pmset -g log`). The initial sleep isn't affected: Battle.net gets a moment to acknowledge before it's paused. In testing that was ~25 extra awake-minutes over a 6-hour lid-closed sleep.
 - With an external display and the lid closed (clamshell mode), Battle.net takes up to 90 seconds to resume after a wake.
 - If Blizzard changes the checkpoint so it needs user interaction, this won't help.
 - The "real wake" check reads undocumented-but-stable `IOPMrootDomain` registry properties (`System Capabilities`, `AppleClamshellState`, `AppleClamshellCausesSleep`).

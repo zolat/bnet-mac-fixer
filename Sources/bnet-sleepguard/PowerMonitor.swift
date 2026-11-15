@@ -9,7 +9,9 @@ final class PowerMonitor {
     private static let systemWillSleep: UInt32 = 0xE000_0280
     private static let systemHasPoweredOn: UInt32 = 0xE000_0300
 
-    var onWillSleep: () -> Void = {}
+    /// Called on kIOMessageSystemWillSleep with a closure that acknowledges it. Sleep is held
+    /// until that closure runs (or the kernel's 30 s timeout), so it may be called later.
+    var onWillSleep: (_ allowSleep: @escaping () -> Void) -> Void = { $0() }
     var onPoweredOn: () -> Void = {}
 
     private var rootPort: io_connect_t = 0
@@ -37,8 +39,8 @@ final class PowerMonitor {
         case Self.canSystemSleep:
             IOAllowPowerChange(rootPort, notificationID)
         case Self.systemWillSleep:
-            onWillSleep()
-            IOAllowPowerChange(rootPort, notificationID)
+            let port = rootPort
+            onWillSleep { IOAllowPowerChange(port, notificationID) }
         case Self.systemHasPoweredOn:
             onPoweredOn()
         default:

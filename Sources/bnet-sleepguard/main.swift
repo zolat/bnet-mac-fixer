@@ -23,6 +23,7 @@ func describe(_ procs: [BattleNetProcesses.Process]) -> String {
 }
 
 final class Guard {
+    private static let sleepAckGrace: TimeInterval = 1
     private let power = PowerMonitor()
     private var frozen = false
     private var policy = ResumePolicy()
@@ -35,12 +36,24 @@ final class Guard {
             BattleNetProcesses.thaw()
         }
 
-        power.onWillSleep = { [unowned self] in
-            let procs = BattleNetProcesses.freeze()
-            frozen = !procs.isEmpty
-            policy.reset()
-            loggedSettling = false
-            log("will sleep: paused \(describe(procs))")
+        power.onWillSleep = { [unowned self] allowSleep in
+            let pause = { [unowned self] in
+                let procs = BattleNetProcesses.freeze()
+                frozen = !procs.isEmpty
+                policy.reset()
+                loggedSettling = false
+                log("will sleep: paused \(describe(procs))")
+                allowSleep()
+            }
+            // Battle.net (via its embedded Chromium) registers for the same sleep notification.
+            // A stopped process can't acknowledge it, which makes the kernel wait 30 s before
+            // sleeping — so if it's still running, give it a moment to ack before pausing it.
+            // Our own ack is withheld until then, so the system can't sleep in between.
+            if frozen {
+                pause()
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.sleepAckGrace, execute: pause)
+            }
         }
         power.onPoweredOn = { [unowned self] in
             log("powered on: \(WakeState.current()?.description ?? "state unknown")")
