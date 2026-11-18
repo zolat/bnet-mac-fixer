@@ -2,15 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "bnet-sleepguard",
+    name: "bnet-mac-fixer",
     platforms: [.macOS(.v13)],
     targets: [
-        .target(name: "SleepGuardCore", linkerSettings: [.linkedFramework("IOKit")]),
+        .target(name: "BnetFixerCore", linkerSettings: [.linkedFramework("IOKit")]),
         .executableTarget(
-            name: "bnet-sleepguard",
-            dependencies: ["SleepGuardCore"],
+            name: "bnet-mac-fixer",
+            dependencies: ["BnetFixerCore"],
             linkerSettings: [.linkedFramework("IOKit"), .linkedFramework("AppKit")]
         ),
-        .testTarget(name: "SleepGuardCoreTests", dependencies: ["SleepGuardCore"]),
+        .testTarget(name: "BnetFixerCoreTests", dependencies: ["BnetFixerCore"]),
     ]
 )

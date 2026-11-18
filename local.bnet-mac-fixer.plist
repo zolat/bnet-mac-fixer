@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>local.bnet-sleepguard</string>
+    <string>local.bnet-mac-fixer</string>
     <key>ProgramArguments</key>
     <array>
-        <string>__HOME__/.local/bin/bnet-sleepguard</string>
+        <string>__HOME__/.local/bin/bnet-mac-fixer</string>
         <string>run</string>
     </array>
     <key>RunAtLoad</key>
@@ -16,8 +16,8 @@
     <key>ProcessType</key>
     <string>Interactive</string>
     <key>StandardOutPath</key>
-    <string>__HOME__/Library/Logs/bnet-sleepguard.log</string>
+    <string>__HOME__/Library/Logs/bnet-mac-fixer.log</string>
     <key>StandardErrorPath</key>
-    <string>__HOME__/Library/Logs/bnet-sleepguard.log</string>
+    <string>__HOME__/Library/Logs/bnet-mac-fixer.log</string>
 </dict>
 </plist>

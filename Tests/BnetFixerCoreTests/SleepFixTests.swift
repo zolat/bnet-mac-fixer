@@ -1,5 +1,5 @@
 import XCTest
-@testable import SleepGuardCore
+@testable import BnetFixerCore
 
 final class WakeStateTests: XCTestCase {
     func testFullWakeLidOpenIsUserAwake() {

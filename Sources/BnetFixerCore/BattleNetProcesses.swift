@@ -17,22 +17,10 @@ public enum BattleNetProcesses {
         return nil
     }
 
-    public static func running() -> [Process] {
-        let estimate = proc_listallpids(nil, 0)
-        guard estimate > 0 else { return [] }
-        var pids = [pid_t](repeating: 0, count: Int(estimate) + 64)
-        let count = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
-        guard count > 0 else { return [] }
-
-        var pathBuffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN)) // PROC_PIDPATHINFO_MAXSIZE
-        var found: [Process] = []
-        for pid in pids.prefix(Int(count)) where pid > 0 {
-            guard proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count)) > 0 else { continue }
-            if let role = role(forExecutablePath: String(cString: pathBuffer)) {
-                found.append(Process(pid: pid, role: role))
-            }
+    public static func running(in table: [ProcessTable.Entry] = ProcessTable.all()) -> [Process] {
+        table.compactMap { entry in
+            role(forExecutablePath: entry.path).map { Process(pid: entry.pid, role: $0) }
         }
-        return found
     }
 
     /// Pause: main process first (stops it initiating anything), then helpers.
