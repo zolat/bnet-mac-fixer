@@ -14,7 +14,7 @@ public struct AgentRestartPolicy {
     public var gameQuietPeriod: TimeInterval
     public var cooldown: TimeInterval
     private var lastGameSeen: Date?
-    private var lastRestart: Date?
+    public private(set) var lastRestart: Date?
 
     public init(threshold: Int = 600, gameQuietPeriod: TimeInterval = 30, cooldown: TimeInterval = 300) {
         self.threshold = threshold

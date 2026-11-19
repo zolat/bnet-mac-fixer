@@ -31,4 +31,17 @@ public struct BlizzardGames {
     public mutating func running(in table: [ProcessTable.Entry] = ProcessTable.all()) -> [ProcessTable.Entry] {
         table.filter { isGame(executablePath: $0.path) }
     }
+
+    /// The game a process belongs to, named after its outermost app bundle, so helpers such as
+    /// World of Warcraft.app/Contents/Helpers/WowVoiceProxy.app count as "World of Warcraft".
+    public static func displayName(forExecutablePath path: String) -> String {
+        let components = path.split(separator: "/")
+        if let app = components.first(where: { $0.hasSuffix(".app") }) { return String(app.dropLast(4)) }
+        return components.last.map(String.init) ?? path
+    }
+
+    /// Distinct game names, sorted.
+    public static func displayNames(_ entries: [ProcessTable.Entry]) -> [String] {
+        Array(Set(entries.map { displayName(forExecutablePath: $0.path) })).sorted()
+    }
 }

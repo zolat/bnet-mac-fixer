@@ -2,8 +2,12 @@ import Foundation
 import BnetFixerCore
 
 func log(_ message: String) {
-    let stamp = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withInternetDateTime])
-    print("\(stamp) \(message)")
+    print("\(localTime(Date())) \(message)")
+}
+
+/// ISO 8601 in the local time zone, as the log uses.
+func localTime(_ date: Date) -> String {
+    ISO8601DateFormatter.string(from: date, timeZone: .current, formatOptions: [.withInternetDateTime])
 }
 
 func describe(_ procs: [BattleNetProcesses.Process]) -> String {

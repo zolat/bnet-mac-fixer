@@ -5,7 +5,7 @@ Works around two Battle.net desktop app bugs on macOS, without quitting Battle.n
 1. **[Logged out after sleep](#1-logged-out-after-sleep)**: you close the lid with Battle.net open and come back to the password screen ("Your login session has expired", `BLZBNTBGS80000023`).
 2. **[Game updates fail until you reboot](#2-game-updates-fail-until-you-reboot)**: Update fails instantly with `BLZBNTAGT0000138F` (Agent error 5007), and a full restart is the only thing that fixes it.
 
-It runs as a tiny per-user LaunchAgent. Previously named `bnet-sleepguard`.
+It runs as a tiny per-user LaunchAgent, with an optional [menu bar icon](#menu-bar) showing what it's done. Previously named `bnet-sleepguard`.
 
 ## 1. Logged out after sleep
 
@@ -84,7 +84,7 @@ cd bnet-mac-fixer
 ./install.sh
 ```
 
-This builds the binary into `~/.local/bin/bnet-mac-fixer` and loads `~/Library/LaunchAgents/local.bnet-mac-fixer.plist`. If you had `bnet-sleepguard` installed, it's removed. Activity is logged to `~/Library/Logs/bnet-mac-fixer.log`:
+This builds the binary into `~/.local/bin/bnet-mac-fixer` and loads two LaunchAgents: `local.bnet-mac-fixer` (the fixer) and `local.bnet-mac-fixer.menubar` (the menu bar icon; skip it with `./install.sh --no-menubar`). If you had `bnet-sleepguard` installed, it's removed. Activity is logged to `~/Library/Logs/bnet-mac-fixer.log`:
 
 ```
 … will sleep: paused 27503(main) 27508(helper) …
@@ -95,21 +95,58 @@ This builds the binary into `~/.local/bin/bnet-mac-fixer` and loads `~/Library/L
 
 DarkWakes produce no log lines because nothing happens during them — that's the point.
 
+## Menu bar
+
+A shield in the menu bar shows what the fixer is doing and has done:
+
+```
+bnet-mac-fixer
+Battle.net: running, will be paused when the Mac sleeps
+Agent: 516 open files, healthy (restarts at 600)
+Playing: World of Warcraft
+────
+Since 15 Nov
+13 sleeps guarded, 3d 20h paused in total
+10 background wakes held (each a possible logout)
+1 Agent restart, peak 2,740 open files
+Recent Activity ›
+────
+Restart Battle.net Agent
+Open Log
+About bnet-mac-fixer
+────
+Quit Menu Bar Icon
+```
+
+The icon changes with the state: ✓ shield when all is well, ⏸ while Battle.net is paused, ! shield when the Agent has leaked past the threshold, and a crossed-out shield if the fixer isn't running (the menu then offers to start it). **Resume Battle.net Now** appears while it's paused.
+
+The icon is a separate process that only reads from the fixer over a Unix socket. Quitting it, or a crash, doesn't affect the fixes. Quitting keeps it off until you next log in; to bring it back sooner, run `launchctl kickstart gui/$(id -u)/local.bnet-mac-fixer.menubar`.
+
+History lives in `~/Library/Application Support/bnet-mac-fixer/activity.json`. On first run it's rebuilt from the existing logs.
+
 ## Uninstall
 
 ```sh
 ./uninstall.sh
 ```
 
-Unloads the agent, resumes Battle.net if it's paused, and removes the binary and plist.
+Unloads both agents, resumes Battle.net if it's paused, and removes the binary and plists. History and logs are kept.
 
 ## Manual commands
 
 ```sh
-bnet-mac-fixer status          # power state, Battle.net PIDs, Agent open files, running games
+bnet-mac-fixer status          # live state plus history: sleeps guarded, Agent restarts, recent events
 bnet-mac-fixer freeze          # pause Battle.net now
 bnet-mac-fixer thaw            # resume Battle.net now
 bnet-mac-fixer restart-agent   # restart the Battle.net Agent now
+bnet-mac-fixer menubar         # run the menu bar icon (normally started by its LaunchAgent)
+```
+
+The fixer also answers JSON on its control socket, if you want to script or build your own front end:
+
+```sh
+echo '{"command":"status"}' | nc -U ~/Library/Application\ Support/bnet-mac-fixer/control.sock
+# commands: status, restart-agent, resume-battlenet
 ```
 
 If Battle.net ever looks frozen, `bnet-mac-fixer thaw` unsticks it. The agent also resumes Battle.net on startup if the Mac is awake, so a crashed agent can't leave it paused for long.
@@ -130,7 +167,10 @@ swift build -c release
 swift test
 ```
 
-`BnetFixerCore` holds the testable logic: wake classification, resume policy, Agent restart policy, process and game detection. The `bnet-mac-fixer` executable wires it to IOKit power notifications (`SleepGuard`) and a one-minute timer (`AgentWatchdog`).
+`BnetFixerCore` holds the testable logic: wake classification, resume policy, Agent restart policy, process and game detection, the activity log and its log importer, the control socket protocol, and the menu's wording (`StatusSummary`). The `bnet-mac-fixer` executable has two halves:
+
+- `Daemon/`: IOKit power notifications (`SleepGuard`), a one-minute timer (`AgentWatchdog`), and the control socket (`ControlService`).
+- `MenuBar/`: the status item. It's a pure client of the socket.
 
 Not affiliated with or endorsed by Blizzard Entertainment. Battle.net is a trademark of Blizzard Entertainment, Inc.
 

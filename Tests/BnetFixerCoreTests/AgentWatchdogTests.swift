@@ -87,6 +87,17 @@ final class BlizzardGamesTests: XCTestCase {
         XCTAssertFalse(g.isGame(executablePath: "/sbin/launchd"))
     }
 
+    func testHelpersAreNamedAfterTheirGame() {
+        let wow = "/Applications/World of Warcraft/_forever_/World of Warcraft.app"
+        let entries = [
+            ProcessTable.Entry(pid: 1, path: wow + "/Contents/MacOS/World of Warcraft"),
+            ProcessTable.Entry(pid: 2, path: wow + "/Contents/Helpers/WowVoiceProxy.app/Contents/MacOS/WowVoiceProxy"),
+            ProcessTable.Entry(pid: 3, path: "/Games/Diablo IV/Diablo IV.app/Contents/MacOS/Diablo IV"),
+        ]
+        XCTAssertEqual(BlizzardGames.displayNames(entries), ["Diablo IV", "World of Warcraft"])
+        XCTAssertEqual(BlizzardGames.displayName(forExecutablePath: "/Games/bin/tool"), "tool")
+    }
+
     func testRunningFiltersTable() {
         var g = games
         let table = [

@@ -11,10 +11,18 @@ import BnetFixerCore
 final class SleepGuard {
     private static let sleepAckGrace: TimeInterval = 1
     private let power = PowerMonitor()
+    private let recorder: ActivityRecorder
     private(set) var isPaused = false
+    private(set) var pausedSince: Date?
+    /// Wakes during the current pause that didn't reach the user (DarkWakes etc.).
+    private(set) var backgroundWakes = 0
     private var policy = ResumePolicy()
     private var loggedSettling = false
     private var pollTimer: Timer?
+
+    init(recorder: ActivityRecorder) {
+        self.recorder = recorder
+    }
 
     func start() {
         // Recover from a previous instance dying while Battle.net was paused.
@@ -25,6 +33,10 @@ final class SleepGuard {
         power.onWillSleep = { [unowned self] allowSleep in
             let pause = { [unowned self] in
                 let procs = BattleNetProcesses.freeze()
+                if !isPaused && !procs.isEmpty {
+                    pausedSince = Date()
+                    backgroundWakes = 0
+                }
                 isPaused = !procs.isEmpty
                 policy.reset()
                 loggedSettling = false
@@ -42,7 +54,9 @@ final class SleepGuard {
             }
         }
         power.onPoweredOn = { [unowned self] in
-            log("powered on: \(WakeState.current()?.description ?? "state unknown")")
+            let state = WakeState.current()
+            log("powered on: \(state?.description ?? "state unknown")")
+            if isPaused, state?.isUserAwake == false { backgroundWakes += 1 }
             resumeIfUserAwake(reason: "powered on")
         }
         guard power.start() else {
@@ -72,10 +86,31 @@ final class SleepGuard {
                 loggedSettling = true
             }
         case .resume:
-            let procs = BattleNetProcesses.thaw()
-            isPaused = false
-            loggedSettling = false
-            log("\(reason): resumed \(describe(procs)) [\(state?.description ?? "state unknown")]")
+            log("\(reason): resumed \(describe(resume())) [\(state?.description ?? "state unknown")]")
         }
+    }
+
+    /// Manual resume from the menu bar / CLI, e.g. if Battle.net ever looks stuck.
+    func resumeNow() -> (ok: Bool, message: String) {
+        guard isPaused else {
+            BattleNetProcesses.thaw() // harmless, and unsticks a pause left by anything else
+            return (true, "Battle.net wasn't paused")
+        }
+        let procs = resume()
+        log("manual: resumed \(describe(procs))")
+        return (true, "Resumed Battle.net")
+    }
+
+    private func resume() -> [BattleNetProcesses.Process] {
+        let procs = BattleNetProcesses.thaw()
+        let now = Date()
+        if let since = pausedSince {
+            recorder.update { $0.recordSleep(pausedAt: since, resumedAt: now, backgroundWakes: backgroundWakes) }
+        }
+        isPaused = false
+        pausedSince = nil
+        backgroundWakes = 0
+        loggedSettling = false
+        return procs
     }
 }
