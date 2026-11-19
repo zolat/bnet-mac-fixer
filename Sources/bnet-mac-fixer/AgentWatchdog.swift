@@ -41,11 +41,11 @@ final class AgentWatchdog {
                 log("agent: \(openFiles ?? 0) open files (limit ~1024); restart deferred until \(names.isEmpty ? "the game" : names.joined(separator: ", ")) has quit")
             }
         case .restart:
-            for agent in agents {
-                let ok = BattleNetAgent.terminate(agent)
-                log("agent: \(openFiles ?? 0) open files (limit ~1024); \(ok ? "restarted" : "failed to stop") pid \(agent.pid)")
-            }
             policy.didRestart(at: Date())
+            for agent in agents {
+                log("agent: \(openFiles ?? 0) open files (limit ~1024); stopping pid \(agent.pid)")
+                BattleNetAgent.stop(agent) { log("agent: pid \(agent.pid) \(describe($0))") }
+            }
         }
     }
 }

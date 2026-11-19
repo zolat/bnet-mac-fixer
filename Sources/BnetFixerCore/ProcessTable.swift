@@ -15,13 +15,20 @@ public enum ProcessTable {
         let count = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
         guard count > 0 else { return [] }
 
-        var pathBuffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN)) // PROC_PIDPATHINFO_MAXSIZE
-        var entries: [Entry] = []
-        for pid in pids.prefix(Int(count)) where pid > 0 {
-            guard proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count)) > 0 else { continue }
-            entries.append(Entry(pid: pid, path: String(cString: pathBuffer)))
+        return pids.prefix(Int(count)).compactMap { pid in
+            guard pid > 0, let path = path(of: pid) else { return nil }
+            return Entry(pid: pid, path: path)
         }
-        return entries
+    }
+
+    /// Executable path of a live process, or nil if it's gone, a zombie, or not ours.
+    public static func path(of pid: pid_t) -> String? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        if proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_status == SZOMB { return nil }
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN)) // PROC_PIDPATHINFO_MAXSIZE
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return String(cString: buffer)
     }
 
     /// Number of open file descriptors, or nil if the process is gone or not ours.

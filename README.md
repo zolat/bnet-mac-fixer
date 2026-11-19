@@ -66,11 +66,12 @@ Rebooting fixes it only because it starts a fresh Agent.
 
 ### The fix
 
-Every minute the fixer counts the Agent's open file descriptors (`bnet-mac-fixer status` shows the number). Once the count passes **600**, it restarts the Agent with `SIGTERM`, and Battle.net relaunches it within seconds. It never does this while a Blizzard game is running, or within 30 seconds of one quitting. Games are recognised by the `.build.info` file at their install root, so there's no hard-coded game list. The Agent isn't restarted more than once every 5 minutes.
+Every minute the fixer counts the Agent's open file descriptors (`bnet-mac-fixer status` shows the number). Once the count passes **600**, it restarts the Agent: `SIGTERM`, then `SIGKILL` if it hasn't quit within 15 seconds (it sometimes ignores `SIGTERM` mid-update). Battle.net relaunches it within seconds. It never does this while a Blizzard game is running, or within 30 seconds of one quitting. Games are recognised by the `.build.info` file at their install root, so there's no hard-coded game list. The Agent isn't restarted more than once every 5 minutes.
 
 ```
 … agent: 2400 open files (limit ~1024); restart deferred until World of Warcraft, WowVoiceProxy has quit
-… agent: 2400 open files (limit ~1024); restarted pid 60831
+… agent: 2740 open files (limit ~1024); stopping pid 60831
+… agent: pid 60831 exited; Battle.net relaunches it on demand
 ```
 
 ## Install

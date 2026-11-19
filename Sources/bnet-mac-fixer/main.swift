@@ -41,7 +41,10 @@ case "restart-agent":
     let agents = BattleNetAgent.running()
     if agents.isEmpty { print("agent: not running") }
     for agent in agents {
-        print("agent: \(BattleNetAgent.terminate(agent) ? "stopped" : "failed to stop") pid \(agent.pid); Battle.net relaunches it on demand")
+        print("agent: stopping pid \(agent.pid)…")
+        let done = DispatchSemaphore(value: 0)
+        BattleNetAgent.stop(agent, queue: .global()) { print("agent: pid \(agent.pid) \(describe($0))"); done.signal() }
+        done.wait()
     }
 default:
     FileHandle.standardError.write("usage: bnet-mac-fixer [run|status|freeze|thaw|restart-agent]\n".data(using: .utf8)!)

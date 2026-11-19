@@ -108,3 +108,42 @@ final class ProcessTableTests: XCTestCase {
         XCTAssertTrue(ProcessTable.all().contains { $0.pid == getpid() })
     }
 }
+
+final class AgentStopTests: XCTestCase {
+    private func spawn(_ script: String) throws -> BattleNetAgent.Instance {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", script]
+        try p.run()
+        addTeardownBlock { kill(p.processIdentifier, SIGKILL) }
+        // Wait for the exec to land so the path is stable.
+        for _ in 0..<40 where ProcessTable.path(of: p.processIdentifier) != "/bin/sleep" { usleep(25_000) }
+        return BattleNetAgent.Instance(pid: p.processIdentifier, path: "/bin/sleep")
+    }
+
+    private func stop(_ instance: BattleNetAgent.Instance, grace: TimeInterval) -> BattleNetAgent.StopResult? {
+        let done = expectation(description: "stopped")
+        var result: BattleNetAgent.StopResult?
+        BattleNetAgent.stop(instance, grace: grace, queue: .global()) { result = $0; done.fulfill() }
+        wait(for: [done], timeout: grace + 5)
+        return result
+    }
+
+    func testProcessThatHonoursSigtermExits() throws {
+        let proc = try spawn("exec /bin/sleep 30")
+        XCTAssertTrue(BattleNetAgent.isRunning(proc))
+        XCTAssertEqual(stop(proc, grace: 2), .exited)
+        XCTAssertFalse(BattleNetAgent.isRunning(proc))
+    }
+
+    func testProcessIgnoringSigtermIsForceQuit() throws {
+        // Ignored signals stay ignored across exec, like an Agent that won't quit mid-update.
+        let proc = try spawn("trap '' TERM; exec /bin/sleep 30")
+        XCTAssertEqual(stop(proc, grace: 1), .forceQuit)
+        XCTAssertFalse(BattleNetAgent.isRunning(proc))
+    }
+
+    func testPidReuseIsNotTheSameInstance() {
+        XCTAssertFalse(BattleNetAgent.isRunning(.init(pid: getpid(), path: "/not/us")))
+    }
+}
