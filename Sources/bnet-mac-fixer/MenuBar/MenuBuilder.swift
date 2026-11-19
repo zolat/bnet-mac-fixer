@@ -7,6 +7,7 @@ struct MenuBuilder {
         let target: AnyObject
         let restartAgent: Selector
         let resumeBattleNet: Selector
+        let restartBattleNet: Selector
         let startFixer: Selector
         let openLog: Selector
         let openProject: Selector
@@ -19,6 +20,7 @@ struct MenuBuilder {
         switch health {
         case .ok: return "checkmark.shield"
         case .paused: return "pause.circle"
+        case .reconnecting: return "arrow.triangle.2.circlepath"
         case .attention: return "exclamationmark.shield"
         case .offline: return "shield.slash"
         }
@@ -56,6 +58,9 @@ struct MenuBuilder {
         restart.isEnabled = summary.canRestartAgent
         menu.addItem(restart)
         if summary.canResumeBattleNet { menu.addItem(action("Resume Battle.net Now", actions.resumeBattleNet)) }
+        let restartBnet = action("Restart Battle.net", actions.restartBattleNet)
+        restartBnet.isEnabled = summary.canRestartBattleNet
+        menu.addItem(restartBnet)
         menu.addItem(action("Open Log", actions.openLog))
         menu.addItem(action("About bnet-mac-fixer", actions.openProject))
 

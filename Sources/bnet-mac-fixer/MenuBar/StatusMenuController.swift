@@ -5,16 +5,25 @@ import BnetFixerCore
 /// quitting it (or it crashing) never affects the fixes.
 final class StatusMenuController: NSObject, NSMenuDelegate {
     private static let refreshInterval: TimeInterval = 15
+    /// While the overlay is up (or just after a wake) the menu bar follows the daemon closely.
+    private static let fastInterval: TimeInterval = 0.25
+    private static let fastFetchEvery = 4 // ticks, i.e. once a second
     private static let projectURL = URL(string: "https://github.com/zolat/bnet-mac-fixer")!
 
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var snapshot: FixerSnapshot?
     private var timer: Timer?
+    private var fastTimer: Timer?
+    private var fastTicks = 0
+    private var fastUntil = Date.distantPast
+    private var fetching = false
+    private let overlay = ReconnectOverlay()
 
     private lazy var builder = MenuBuilder(actions: .init(
         target: self,
         restartAgent: #selector(restartAgent),
         resumeBattleNet: #selector(resumeBattleNet),
+        restartBattleNet: #selector(restartBattleNet),
         startFixer: #selector(startFixer),
         openLog: #selector(openLog),
         openProject: #selector(openProject),
@@ -28,6 +37,25 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         apply(Self.fetch(timeout: 1))
         timer = Timer.scheduledTimer(withTimeInterval: Self.refreshInterval, repeats: true) { [unowned self] _ in refresh() }
         timer?.tolerance = 5
+
+        overlay.onRestart = { [unowned self] in send(.restartBattleNet) }
+        // The daemon resumes Battle.net as the Mac wakes; poll quickly so the overlay is up at once.
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { [unowned self] _ in
+                fastUntil = Date().addingTimeInterval(30)
+            }
+        }
+        fastTimer = Timer.scheduledTimer(withTimeInterval: Self.fastInterval, repeats: true) { [unowned self] _ in fastTick() }
+        RunLoop.main.add(fastTimer!, forMode: .common)
+    }
+
+    private func fastTick() {
+        let now = Date()
+        guard overlay.isActive || fastUntil.timeIntervalSince(now) > 0 else { return }
+        fastTicks += 1
+        if fastTicks % Self.fastFetchEvery == 0 { refresh() }
+        overlay.update(snapshot?.reconnect, now: now) // keeps the clock ticking and the panel on the window
     }
 
     // Rebuilt on every open from a fresh snapshot, so what you see is never stale.
@@ -39,9 +67,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     private func refresh() {
+        guard !fetching else { return }
+        fetching = true
         DispatchQueue.global().async {
             let snapshot = Self.fetch(timeout: 2)
-            DispatchQueue.main.async { self.apply(snapshot) }
+            DispatchQueue.main.async { self.fetching = false; self.apply(snapshot) }
         }
     }
 
@@ -52,6 +82,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         image?.isTemplate = true
         item.button?.image = image
         item.button?.toolTip = snapshot == nil ? summary.battleNet : "\(summary.battleNet)\n\(summary.agent)"
+        overlay.update(snapshot?.reconnect, now: Date())
     }
 
     static func fetch(timeout: TimeInterval) -> FixerSnapshot? {
@@ -81,6 +112,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     @objc private func resumeBattleNet() { send(.resumeBattleNet) }
+    @objc private func restartBattleNet() { send(.restartBattleNet) }
 
     @objc private func startFixer() {
         let domain = "gui/\(getuid())"

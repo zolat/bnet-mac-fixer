@@ -8,6 +8,7 @@ public struct ControlRequest: Codable, Equatable {
         case status
         case restartAgent = "restart-agent"
         case resumeBattleNet = "resume-battlenet"
+        case restartBattleNet = "restart-battlenet"
     }
 
     public var command: Command
@@ -65,12 +66,14 @@ public struct FixerSnapshot: Codable, Equatable {
     public var agentRestarting: Bool
     public var lastAgentRestart: Date?
     public var games: [String]
+    /// The latest wake/restart episode, until Battle.net has signed back in (and a little after).
+    public var reconnect: ReconnectTracker.State?
     public var activity: ActivityLog
 
     public init(
         pid: Int32, startedAt: Date, battleNet: BattleNet, agent: Agent?, agentThreshold: Int,
         agentLimit: Int = 1024, agentRestarting: Bool = false, lastAgentRestart: Date? = nil,
-        games: [String], activity: ActivityLog
+        games: [String], reconnect: ReconnectTracker.State? = nil, activity: ActivityLog
     ) {
         self.pid = pid
         self.startedAt = startedAt
@@ -81,6 +84,7 @@ public struct FixerSnapshot: Codable, Equatable {
         self.agentRestarting = agentRestarting
         self.lastAgentRestart = lastAgentRestart
         self.games = games
+        self.reconnect = reconnect
         self.activity = activity
     }
 }

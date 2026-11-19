@@ -68,6 +68,21 @@ public struct ActivityLog: Codable, Equatable {
         append(.agent, date, "Agent at \(Format.count(openFiles)) open files; restart waits until \(waiting) quits")
     }
 
+    /// A wake/restart episode finished: Battle.net signed in (or we gave up waiting).
+    public mutating func recordReconnect(_ state: ReconnectTracker.State) {
+        let start = state.restartedAt ?? state.since
+        let after = state.cause == .wake ? (state.restartedAt == nil ? "after waking" : "after waking and a restart") : "after a restart"
+        switch state.phase {
+        case .ready:
+            guard let readyAt = state.readyAt else { return }
+            append(.sleep, readyAt, "Battle.net signed back in \(Format.duration(readyAt.timeIntervalSince(start))) \(after)")
+        case .timedOut:
+            append(.sleep, start.addingTimeInterval(ReconnectTracker.giveUpAfter), "Battle.net hadn't signed back in \(Format.duration(ReconnectTracker.giveUpAfter)) \(after)")
+        case .waiting, .stuck, .restarting:
+            break
+        }
+    }
+
     public mutating func observeAgent(openFiles: Int) {
         peakAgentOpenFiles = max(peakAgentOpenFiles, openFiles)
     }

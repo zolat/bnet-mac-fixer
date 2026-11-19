@@ -7,7 +7,7 @@ import BnetFixerCore
 // `run` is the daemon; `menubar` is an optional, separate client of its control socket.
 
 setlinebuf(stdout)
-let usage = "usage: bnet-mac-fixer [run|menubar [--dump]|status|freeze|thaw|restart-agent]\n"
+let usage = "usage: bnet-mac-fixer [run|menubar [--dump]|status|freeze|thaw|restart-agent|restart-battlenet|overlay-preview PHASE [SECONDS]]\n"
 
 /// Sends a command to the daemon if it's running. Nil means it isn't.
 func askDaemon(_ command: ControlRequest.Command) -> ControlResponse? {
@@ -52,21 +52,23 @@ func printStatus() {
 switch CommandLine.arguments.dropFirst().first ?? "run" {
 case "run":
     let recorder = ActivityRecorder()
-    let sleepGuard = SleepGuard(recorder: recorder)
+    let reconnect = ReconnectMonitor(recorder: recorder)
+    let sleepGuard = SleepGuard(recorder: recorder, reconnect: reconnect)
     sleepGuard.start()
     let watchdog = AgentWatchdog(recorder: recorder, isSuspended: { sleepGuard.isPaused })
     watchdog.start()
-    let control = ControlService(sleepGuard: sleepGuard, watchdog: watchdog, recorder: recorder)
+    let control = ControlService(sleepGuard: sleepGuard, watchdog: watchdog, recorder: recorder, reconnect: reconnect)
     control.start()
     log("started: \(WakeState.current()?.description ?? "state unknown"); watching \(describe(BattleNetProcesses.running()))")
     // Timers and the socket handler hold these unowned; keep them alive for the daemon's lifetime.
-    withExtendedLifetime((recorder, sleepGuard, watchdog, control)) { RunLoop.main.run() }
+    withExtendedLifetime((recorder, reconnect, sleepGuard, watchdog, control)) { RunLoop.main.run() }
 
 case "menubar":
     if CommandLine.arguments.contains("--dump") {
         let snapshot = StatusMenuController.fetch(timeout: 2)
         let builder = MenuBuilder(actions: .init(
             target: NSObject(), restartAgent: #selector(NSObject.copy), resumeBattleNet: #selector(NSObject.copy),
+            restartBattleNet: #selector(NSObject.copy),
             startFixer: #selector(NSObject.copy), openLog: #selector(NSObject.copy), openProject: #selector(NSObject.copy),
             quit: #selector(NSObject.copy)
         ))
@@ -79,6 +81,35 @@ case "menubar":
     let controller = StatusMenuController()
     controller.start()
     withExtendedLifetime(controller) { app.run() }
+
+case "overlay-preview":
+    // Dev aid: shows the reconnect overlay over the real Battle.net window with a fake state.
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    let phase = args.first.flatMap(ReconnectTracker.Phase.init(rawValue:)) ?? .stuck
+    let seconds = args.dropFirst().first.flatMap(Double.init) ?? 6
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    let overlay = ReconnectOverlay()
+    overlay.onRestart = { print("restart clicked") }
+    let start = Date()
+    func fake(_ now: Date) -> ReconnectTracker.State {
+        ReconnectTracker.State(phase: phase, cause: .wake, since: start.addingTimeInterval(-42),
+                               restartedAt: phase == .restarting ? start.addingTimeInterval(-3) : nil,
+                               readyAt: phase == .ready ? now : nil)
+    }
+    let tick = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in overlay.update(fake(Date()), now: Date()) }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+        let covered = overlay.coveredWindow
+        print("overlay window \(overlay.windowNumber), covering Battle.net window \(covered.map(String.init) ?? "none")")
+        if let covered { print("directly above Battle.net: \(BattleNetWindow.isDirectlyAbove(overlay.windowNumber, covered))") }
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { exit(0) }
+    withExtendedLifetime((overlay, tick)) { app.run() }
+
+case "restart-battlenet":
+    guard let response = askDaemon(.restartBattleNet) else { print("bnet-mac-fixer isn't running"); exit(1) }
+    print(response.message ?? "")
+    exit(response.ok ? 0 : 1)
 
 case "status":
     printStatus()

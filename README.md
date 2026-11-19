@@ -3,7 +3,8 @@
 Works around two Battle.net desktop app bugs on macOS, without quitting Battle.net or changing system settings:
 
 1. **[Logged out after sleep](#1-logged-out-after-sleep)**: you close the lid with Battle.net open and come back to the password screen ("Your login session has expired", `BLZBNTBGS80000023`).
-2. **[Game updates fail until you reboot](#2-game-updates-fail-until-you-reboot)**: Update fails instantly with `BLZBNTAGT0000138F` (Agent error 5007), and a full restart is the only thing that fixes it.
+2. **[Games fail to launch right after waking](#2-games-fail-to-launch-right-after-waking)**: you open the lid, press Play, and the launch expires or the game asks you to log in.
+3. **[Game updates fail until you reboot](#3-game-updates-fail-until-you-reboot)**: Update fails instantly with `BLZBNTAGT0000138F` (Agent error 5007), and a full restart is the only thing that fixes it.
 
 It runs as a tiny per-user LaunchAgent, with an optional [menu bar icon](#menu-bar) showing what it's done. Previously named `bnet-sleepguard`.
 
@@ -43,7 +44,32 @@ When the Mac is genuinely awake the same challenge completes silently in ~2 seco
 
 Lid-closed full wakes (e.g. a USB keyboard bump or a notification wake, which drop back to sleep within seconds) must hold for 90 seconds before Battle.net is resumed. Opening the lid resumes it immediately.
 
-## 2. Game updates fail until you reboot
+## 2. Games fail to launch right after waking
+
+### The cause
+
+After every wake Battle.net has to drop its old connection and sign in again. Sometimes it notices at once and is back in ~7 seconds. Often it keeps using the dead connection for **60–100 seconds** first, and launches in that window fail:
+
+```
+W [GameLaunchController] Pending game launch expired before Agent reported it running. uid=wowf
+W [InstallManager]       SSO Token generation error: err=ERROR_RPC_REQUEST_TIMED_OUT (3006)
+E [BNLogin]              Disconnected from Battle.net: err=ERROR_NETWORK_MODULE_SOCKET_CLOSED (1016)   ← 76 s after waking
+I [BNLogin]              Logged into Battle.net successfully.                                            ← ready
+```
+
+Over two weeks of logs, every wake reconnected. The fast ones disconnected within 9 seconds; every slow one went more than 60 seconds without noticing.
+
+### The fix
+
+After resuming Battle.net, the fixer follows its log until it signs back in, and the menu bar shows a slim status bar across the top of the Battle.net window:
+
+- **Reconnecting to Battle.net… Wait before pressing Play** with a timer.
+- If there's no disconnect within 15 seconds, it's on the slow path: **Battle.net is stuck on its old connection. Restarting is faster.** The **Restart Battle.net** button quits it normally and relaunches it, and it signs in within ~10 seconds.
+- **Battle.net is ready** for a moment, then the bar disappears.
+
+The bar only covers its own strip, so the rest of Battle.net still works and you can ignore it or dismiss it with ✕. It stays directly above the Battle.net window (never above other apps) and hides when that window isn't on screen.
+
+## 3. Game updates fail until you reboot
 
 ### The cause
 
@@ -118,7 +144,7 @@ About bnet-mac-fixer
 Quit Menu Bar Icon
 ```
 
-The icon changes with the state: ✓ shield when all is well, ⏸ while Battle.net is paused, ! shield when the Agent has leaked past the threshold, and a crossed-out shield if the fixer isn't running (the menu then offers to start it). **Resume Battle.net Now** appears while it's paused.
+The icon changes with the state: ✓ shield when all is well, ⏸ while Battle.net is paused, ! shield when the Agent has leaked past the threshold, and a crossed-out shield if the fixer isn't running (the menu then offers to start it). **Resume Battle.net Now** appears while it's paused, and **Restart Battle.net** is always there.
 
 The icon is a separate process that only reads from the fixer over a Unix socket. Quitting it, or a crash, doesn't affect the fixes. Quitting keeps it off until you next log in; to bring it back sooner, run `launchctl kickstart gui/$(id -u)/local.bnet-mac-fixer.menubar`.
 
@@ -139,6 +165,7 @@ bnet-mac-fixer status          # live state plus history: sleeps guarded, Agent 
 bnet-mac-fixer freeze          # pause Battle.net now
 bnet-mac-fixer thaw            # resume Battle.net now
 bnet-mac-fixer restart-agent   # restart the Battle.net Agent now
+bnet-mac-fixer restart-battlenet  # quit and relaunch Battle.net (it signs in again within seconds)
 bnet-mac-fixer menubar         # run the menu bar icon (normally started by its LaunchAgent)
 ```
 
@@ -146,14 +173,14 @@ The fixer also answers JSON on its control socket, if you want to script or buil
 
 ```sh
 echo '{"command":"status"}' | nc -U ~/Library/Application\ Support/bnet-mac-fixer/control.sock
-# commands: status, restart-agent, resume-battlenet
+# commands: status, restart-agent, resume-battlenet, restart-battlenet
 ```
 
 If Battle.net ever looks frozen, `bnet-mac-fixer thaw` unsticks it. The agent also resumes Battle.net on startup if the Mac is awake, so a crashed agent can't leave it paused for long.
 
 ## Caveats
 
-- After opening the lid Battle.net shows "offline" for ~3–5 seconds while it reconnects. After a long sleep (hours), its old connection is silently dead and it can take a minute or so to notice. During that time a game launch may stall or skip the SSO token, and then it reconnects and signs in normally.
+- After opening the lid Battle.net needs a few seconds to a minute and a half to sign back in (see [above](#2-games-fail-to-launch-right-after-waking)); the status bar tells you when it's ready.
 - Battle.net registers for macOS sleep notifications itself and can't acknowledge them while paused, so each maintenance wake takes ~30 s longer to go back to sleep (`Battle.net timed out(30000 ms)` in `pmset -g log`). The initial sleep isn't affected: Battle.net gets a moment to acknowledge before it's paused. In testing that was ~25 extra awake-minutes over a 6-hour lid-closed sleep.
 - With an external display and the lid closed (clamshell mode), Battle.net takes up to 90 seconds to resume after a wake.
 - If Blizzard changes the checkpoint so it needs user interaction, this won't help.
@@ -170,7 +197,7 @@ swift test
 `BnetFixerCore` holds the testable logic: wake classification, resume policy, Agent restart policy, process and game detection, the activity log and its log importer, the control socket protocol, and the menu's wording (`StatusSummary`). The `bnet-mac-fixer` executable has two halves:
 
 - `Daemon/`: IOKit power notifications (`SleepGuard`), a one-minute timer (`AgentWatchdog`), and the control socket (`ControlService`).
-- `MenuBar/`: the status item. It's a pure client of the socket.
+- `MenuBar/`: the status item and the reconnect bar. It's a pure client of the socket. `bnet-mac-fixer overlay-preview stuck 10` shows the bar over the real Battle.net window with a fake state (`waiting`, `stuck`, `restarting`, `ready`, `timedOut`).
 
 Not affiliated with or endorsed by Blizzard Entertainment. Battle.net is a trademark of Blizzard Entertainment, Inc.
 

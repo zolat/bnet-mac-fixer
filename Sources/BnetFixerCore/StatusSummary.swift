@@ -9,6 +9,8 @@ public struct StatusSummary: Equatable {
         case paused
         /// The Agent has leaked past the restart threshold.
         case attention
+        /// Battle.net is reconnecting after a wake or restart; game launches may fail.
+        case reconnecting
         /// The daemon isn't reachable.
         case offline
     }
@@ -21,17 +23,26 @@ public struct StatusSummary: Equatable {
     public var totals: [String]
     public var canResumeBattleNet: Bool
     public var canRestartAgent: Bool
+    public var canRestartBattleNet: Bool
 
     public init(_ snapshot: FixerSnapshot?, now: Date = Date()) {
         guard let s = snapshot else {
             self.init(health: .offline, battleNet: "bnet-mac-fixer isn't running", agent: "", games: nil, totals: [],
-                      canResumeBattleNet: false, canRestartAgent: false)
+                      canResumeBattleNet: false, canRestartAgent: false, canRestartBattleNet: false)
             return
         }
 
         let bn = s.battleNet
-        let battleNet: String
-        if bn.processCount == 0 {
+        let reconnecting = s.reconnect.map { $0.isWaiting } ?? false
+        var battleNet: String
+        if let r = s.reconnect, r.isWaiting {
+            let elapsed = OverlayContent.clock(now.timeIntervalSince(r.restartedAt ?? r.since))
+            switch r.phase {
+            case .restarting: battleNet = "Battle.net: restarting (\(elapsed))"
+            case .stuck: battleNet = "Battle.net: stuck on its old connection (\(elapsed)); restarting it is faster"
+            default: battleNet = "Battle.net: reconnecting after sleep (\(elapsed)); wait before pressing Play"
+            }
+        } else if bn.processCount == 0 {
             battleNet = "Battle.net: not running"
         } else if bn.paused {
             let since = bn.pausedSince.map { " for \(Format.duration(now.timeIntervalSince($0)))" } ?? ""
@@ -67,18 +78,19 @@ public struct StatusSummary: Equatable {
         if a.agentForceQuits > 0 { totals[2] += ", \(Format.count(a.agentForceQuits)) force-quit" }
 
         self.init(
-            health: overThreshold ? .attention : bn.paused ? .paused : .ok,
+            health: reconnecting ? .reconnecting : overThreshold ? .attention : bn.paused ? .paused : .ok,
             battleNet: battleNet,
             agent: agent,
             games: s.games.isEmpty ? nil : "Playing: \(Format.list(s.games))",
             totals: totals,
             canResumeBattleNet: bn.paused,
-            canRestartAgent: s.agent != nil && !s.agentRestarting
+            canRestartAgent: s.agent != nil && !s.agentRestarting,
+            canRestartBattleNet: bn.processCount > 0 && s.reconnect?.phase != .restarting
         )
     }
 
     public init(health: Health, battleNet: String, agent: String, games: String?, totals: [String],
-                canResumeBattleNet: Bool, canRestartAgent: Bool) {
+                canResumeBattleNet: Bool, canRestartAgent: Bool, canRestartBattleNet: Bool) {
         self.health = health
         self.battleNet = battleNet
         self.agent = agent
@@ -86,5 +98,6 @@ public struct StatusSummary: Equatable {
         self.totals = totals
         self.canResumeBattleNet = canResumeBattleNet
         self.canRestartAgent = canRestartAgent
+        self.canRestartBattleNet = canRestartBattleNet
     }
 }

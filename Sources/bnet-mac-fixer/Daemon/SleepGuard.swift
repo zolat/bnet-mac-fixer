@@ -12,6 +12,7 @@ final class SleepGuard {
     private static let sleepAckGrace: TimeInterval = 1
     private let power = PowerMonitor()
     private let recorder: ActivityRecorder
+    private let reconnect: ReconnectMonitor
     private(set) var isPaused = false
     private(set) var pausedSince: Date?
     /// Wakes during the current pause that didn't reach the user (DarkWakes etc.).
@@ -20,8 +21,9 @@ final class SleepGuard {
     private var loggedSettling = false
     private var pollTimer: Timer?
 
-    init(recorder: ActivityRecorder) {
+    init(recorder: ActivityRecorder, reconnect: ReconnectMonitor) {
         self.recorder = recorder
+        self.reconnect = reconnect
     }
 
     func start() {
@@ -102,8 +104,10 @@ final class SleepGuard {
     }
 
     private func resume() -> [BattleNetProcesses.Process] {
+        let mark = reconnect.markLog()
         let procs = BattleNetProcesses.thaw()
         let now = Date()
+        if !procs.isEmpty { reconnect.wokeUp(mark, at: now) }
         if let since = pausedSince {
             recorder.update { $0.recordSleep(pausedAt: since, resumedAt: now, backgroundWakes: backgroundWakes) }
         }
